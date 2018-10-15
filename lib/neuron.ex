@@ -59,11 +59,14 @@ defmodule Neuron do
   ```
   """
 
-  @spec query(query_string :: String.t(), options :: keyword()) :: Neuron.Response.t()
-  def query(query_string, options \\ []) do
+  @spec query(query_string :: String.t(), variables :: Map.t(), options :: keyword()) ::
+          Neuron.Response.t()
+  def query(query_string, variables \\ %{}, options \\ []) do
     query_string
-    |> construct_query_string(options)
     |> Fragment.insert_into_query()
+    |> build_body(:query)
+    |> insert_variables(variables)
+    |> Poison.encode!()
     |> run(options)
   end
 
@@ -85,11 +88,14 @@ defmodule Neuron do
   ```
   """
 
-  @spec mutation(query_string :: String.t(), options :: keyword()) :: Neuron.Response.t()
-  def mutation(mutation_string, options \\ []) do
+  @spec mutation(query_string :: String.t(), variables :: Map.t(), options :: keyword()) ::
+          Neuron.Response.t()
+  def mutation(mutation_string, variables \\ %{}, options \\ []) do
     mutation_string
-    |> construct_mutation_string(options)
     |> Fragment.insert_into_query()
+    |> build_body(:mutation)
+    |> insert_variables(variables)
+    |> Poison.encode!()
     |> run(options)
   end
 
@@ -102,43 +108,30 @@ defmodule Neuron do
   defp run_query(body, options) do
     url = url(options)
     headers = build_headers(options)
+    IO.inspect(body)
     Connection.post(url, body, headers)
   end
 
-  defp construct_query_string(query_string, options) do
-    if as_json(options) do
-      Poison.encode!(%{query: query_string})
-    else
-      "query #{query_string}"
-    end
+  defp build_body(query_string, operation_name) do
+    %{
+      operationName: operation_name,
+      query: "#{operation_name} #{query_string}"
+    }
   end
 
-  defp construct_mutation_string(mutation_string, options) do
-    if as_json(options) do
-      Poison.encode!(%{mutation: mutation_string})
-    else
-      "mutation #{mutation_string}"
-    end
+  defp insert_variables(body, variables) do
+    Map.put(body, :variables, variables)
   end
 
   defp url(options) do
     Keyword.get(options, :url) || Config.get(:url)
   end
 
-  defp as_json(options) do
-    Keyword.get(options, :as_json, Config.get(:as_json))
-  end
-
   defp build_headers(options) do
-    as_json(options)
-    |> base_headers()
-    |> Keyword.merge(headers(options))
+    Keyword.merge(["Content-Type": "application/json"], headers(options))
   end
 
   defp headers(options) do
     Keyword.get(options, :headers, Config.get(:headers) || [])
   end
-
-  defp base_headers(true), do: ["Content-Type": "application/json"]
-  defp base_headers(_), do: ["Content-Type": "application/graphql"]
 end
